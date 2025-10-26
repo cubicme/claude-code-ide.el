@@ -2257,6 +2257,106 @@ have completed before cleanup.  Waits up to 5 seconds."
       ;; Cleanup
       (claude-code-ide-mcp-server-unregister-session session-id))))
 
+(ert-deftest claude-code-ide-emacs-tools-test-search-symbols ()
+  "Test search-symbols tool with glob patterns."
+  (require 'claude-code-ide-emacs-tools)
+
+  (let ((session-id "test-session-search-symbols")
+        (project-dir (temporary-file-directory)))
+    (unwind-protect
+        (progn
+          ;; Register a mock session
+          (claude-code-ide-mcp-server-register-session session-id project-dir nil)
+
+          ;; Test basic glob pattern for built-in symbols
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-search-symbols "car")))
+              ;; Should return a list with car function
+              (should (listp result))
+              (should (> (length result) 0))
+              (should (cl-some (lambda (s) (string-match "^car \\[" s)) result))))
+
+          ;; Test wildcard pattern
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-search-symbols "emacs-*")))
+              ;; Should return a list of emacs-* symbols
+              (should (listp result))
+              (should (> (length result) 0))
+              ;; All results should start with emacs-
+              (dolist (item result)
+                (should (string-match "^emacs-" item)))))
+
+          ;; Test pattern with wildcard in middle
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            ;; Define test symbols
+            (defun test-search-func-one ()
+              "Test function 1.")
+            (defvar test-search-var-two "value"
+              "Test variable 2.")
+
+            (let ((result (claude-code-ide-mcp-search-symbols "test-search-*")))
+              (should (listp result))
+              (should (> (length result) 0))
+              ;; Check that we found our test symbols
+              (let ((result-string (mapconcat #'identity result "\n")))
+                (should (string-match "test-search-func-one.*function" result-string))
+                (should (string-match "test-search-var-two.*variable" result-string)))))
+
+          ;; Test symbol with multiple types
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            ;; buffer-file-name is both a function and a variable
+            (let ((result (claude-code-ide-mcp-search-symbols "buffer-file-name")))
+              (should (listp result))
+              (should (= (length result) 1))
+              ;; Should show it's both function and variable
+              (should (string-match "function" (car result)))
+              (should (string-match "variable" (car result)))))
+
+          ;; Test customization detection
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            ;; user-mail-address is a customizable variable
+            (let ((result (claude-code-ide-mcp-search-symbols "user-mail-address")))
+              (should (listp result))
+              (should (= (length result) 1))
+              (should (string-match "variable" (car result)))
+              ;; It should be detected as customization
+              (should (string-match "customization" (car result)))))
+
+          ;; Test no matches
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-search-symbols "nonexistent-xyz-abc-123")))
+              (should (stringp result))
+              (should (string-match "No symbols found" result))))
+
+          ;; Test error handling - no pattern
+          (should-error (claude-code-ide-mcp-search-symbols nil)
+                        :type 'error))
+
+      ;; Cleanup
+      (claude-code-ide-mcp-server-unregister-session session-id))))
+
+(ert-deftest claude-code-ide-emacs-tools-test-search-symbols-limit ()
+  "Test that search-symbols respects the max results limit."
+  (require 'claude-code-ide-emacs-tools)
+
+  (let ((session-id "test-session-search-limit")
+        (project-dir (temporary-file-directory)))
+    (unwind-protect
+        (progn
+          ;; Register a mock session
+          (claude-code-ide-mcp-server-register-session session-id project-dir nil)
+
+          ;; Test with a very broad pattern that would match many symbols
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-search-symbols "*-mode")))
+              ;; Should return a list
+              (should (listp result))
+              ;; Should be capped at 100 results
+              (should (<= (length result) 100)))))
+
+      ;; Cleanup
+      (claude-code-ide-mcp-server-unregister-session session-id))))
+
 (ert-deftest claude-code-ide-test-tool-format-backward-compatibility ()
   "Test that both old and new tool formats work correctly."
   (require 'claude-code-ide-mcp-server)

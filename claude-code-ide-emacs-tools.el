@@ -446,6 +446,48 @@ Returns formatted information including current value, documentation, and locati
          (format "Error describing variable '%s': %s"
                  symbol (error-message-string err)))))))
 
+(defun claude-code-ide-mcp-search-symbols (pattern)
+  "Search for Emacs symbols matching PATTERN.
+PATTERN is a glob pattern (e.g., \"magit-*blame*\").
+Returns a list of matching symbols with their types (function, variable, customization)."
+  (if (not pattern)
+      (error "pattern parameter is required")
+    (claude-code-ide-mcp-server-with-session-context nil
+      (condition-case err
+          (let* ((pattern-str (format "%s" pattern))
+                 ;; Convert glob pattern to regex
+                 (regex (wildcard-to-regexp pattern-str))
+                 (results '())
+                 (max-results 100)
+                 (count 0))
+            ;; Iterate over all symbols
+            (mapatoms
+             (lambda (sym)
+               (when (and (< count max-results)
+                          (string-match regex (symbol-name sym)))
+                 ;; Determine symbol types
+                 (let ((types '()))
+                   (when (fboundp sym)
+                     (push "function" types))
+                   (when (boundp sym)
+                     (push "variable" types))
+                   (when (and (boundp sym) (custom-variable-p sym))
+                     (push "customization" types))
+                   ;; Only include symbols that have at least one type
+                   (when types
+                     (push (format "%s [%s]"
+                                   (symbol-name sym)
+                                   (mapconcat #'identity (nreverse types) ", "))
+                           results)
+                     (cl-incf count))))))
+            ;; Return results
+            (if results
+                (nreverse results)
+              (format "No symbols found matching pattern '%s'" pattern-str)))
+        (error
+         (format "Error searching for symbols matching '%s': %s"
+                 pattern (error-message-string err)))))))
+
 ;;; Tool Configuration
 
 ;;; Tool Registration
@@ -542,7 +584,16 @@ Returns formatted information including current value, documentation, and locati
    :description "Get detailed information about an Emacs Lisp variable including its current value, type, documentation, definition location, and properties (customizable, buffer-local, etc.)"
    :args '((:name "symbol"
                   :type string
-                  :description "The variable name to describe"))))
+                  :description "The variable name to describe")))
+
+  ;; Register search tool
+  (claude-code-ide-make-tool
+   :function #'claude-code-ide-mcp-search-symbols
+   :name "claude-code-ide-mcp-search-symbols"
+   :description "Search for Emacs Lisp symbols (functions, variables, customizations) by glob pattern. Returns a list of matching symbols with their types. Use wildcards like 'magit-*blame*' or 'doom-*theme'. Useful for discovering available symbols when you know part of the name"
+   :args '((:name "pattern"
+                  :type string
+                  :description "Glob pattern to match symbol names (e.g., 'magit-*', '*-mode', 'doom-*theme')"))))
 
 (provide 'claude-code-ide-emacs-tools)
 ;;; claude-code-ide-emacs-tools.el ends here
