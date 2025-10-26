@@ -2144,6 +2144,119 @@ have completed before cleanup.  Waits up to 5 seconds."
       (delete-file test-file)
       (claude-code-ide-mcp-server-unregister-session session-id))))
 
+(ert-deftest claude-code-ide-emacs-tools-test-describe-function ()
+  "Test describe-function tool with various functions."
+  (require 'claude-code-ide-emacs-tools)
+
+  (let ((session-id "test-session-describe-func")
+        (project-dir (temporary-file-directory)))
+    (unwind-protect
+        (progn
+          ;; Register a mock session
+          (claude-code-ide-mcp-server-register-session session-id project-dir nil)
+
+          ;; Test with a built-in function
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-describe-function "car")))
+              ;; Should return a string with function information
+              (should (stringp result))
+              (should (string-match "Function: car" result))
+              (should (string-match "Signature:" result))
+              (should (string-match "Type: built-in" result))
+              (should (string-match "Documentation:" result))))
+
+          ;; Test with a user-defined function
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            ;; Define a test function
+            (defun test-describe-func (arg1 arg2)
+              "Test function for describe-function testing."
+              (list arg1 arg2))
+
+            (let ((result (claude-code-ide-mcp-describe-function "test-describe-func")))
+              (should (stringp result))
+              (should (string-match "Function: test-describe-func" result))
+              (should (string-match "Signature:" result))
+              (should (string-match "arg1 arg2" result))
+              (should (string-match "Test function for describe-function testing" result))))
+
+          ;; Test with non-existent function
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-describe-function "nonexistent-function-xyz")))
+              (should (stringp result))
+              (should (string-match "not defined as a function" result))))
+
+          ;; Test error handling - no symbol
+          (should-error (claude-code-ide-mcp-describe-function nil)
+                        :type 'error))
+
+      ;; Cleanup
+      (claude-code-ide-mcp-server-unregister-session session-id))))
+
+(ert-deftest claude-code-ide-emacs-tools-test-describe-variable ()
+  "Test describe-variable tool with various variables."
+  (require 'claude-code-ide-emacs-tools)
+
+  (let ((session-id "test-session-describe-var")
+        (project-dir (temporary-file-directory)))
+    (unwind-protect
+        (progn
+          ;; Register a mock session
+          (claude-code-ide-mcp-server-register-session session-id project-dir nil)
+
+          ;; Test with a built-in variable
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-describe-variable "emacs-version")))
+              ;; Should return a string with variable information
+              (should (stringp result))
+              (should (string-match "Variable: emacs-version" result))
+              (should (string-match "Value:" result))
+              (should (string-match "Type:" result))
+              (should (string-match "Documentation:" result))))
+
+          ;; Test with a user-defined variable
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            ;; Define a test variable
+            (defvar test-describe-var "test-value"
+              "Test variable for describe-variable testing.")
+
+            (let ((result (claude-code-ide-mcp-describe-variable "test-describe-var")))
+              (should (stringp result))
+              (should (string-match "Variable: test-describe-var" result))
+              (should (string-match "Value: \"test-value\"" result))
+              (should (string-match "Type: string" result))
+              (should (string-match "Test variable for describe-variable testing" result))))
+
+          ;; Test with customizable variable
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-describe-variable "load-path")))
+              (should (stringp result))
+              (should (string-match "Variable: load-path" result))
+              (should (string-match "Value:" result))))
+
+          ;; Test with large value (should truncate)
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (defvar test-large-var (make-string 300 ?x)
+              "Test variable with large value.")
+
+            (let ((result (claude-code-ide-mcp-describe-variable "test-large-var")))
+              (should (stringp result))
+              (should (string-match "Variable: test-large-var" result))
+              ;; Value should be truncated with ...
+              (should (string-match "\\.\\.\\." result))))
+
+          ;; Test with non-existent variable
+          (let ((claude-code-ide-mcp-server--current-session-id session-id))
+            (let ((result (claude-code-ide-mcp-describe-variable "nonexistent-variable-xyz")))
+              (should (stringp result))
+              (should (string-match "not defined as a variable" result))))
+
+          ;; Test error handling - no symbol
+          (should-error (claude-code-ide-mcp-describe-variable nil)
+                        :type 'error))
+
+      ;; Cleanup
+      (claude-code-ide-mcp-server-unregister-session session-id))))
+
 (ert-deftest claude-code-ide-test-tool-format-backward-compatibility ()
   "Test that both old and new tool formats work correctly."
   (require 'claude-code-ide-mcp-server)

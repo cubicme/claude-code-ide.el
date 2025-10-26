@@ -332,6 +332,120 @@ If INCLUDE_CHILDREN is non-nil, include child nodes."
          (format "Error getting tree-sitter info for %s: %s"
                  file-path (error-message-string err)))))))
 
+(defun claude-code-ide-mcp-describe-function (symbol)
+  "Describe the function SYMBOL.
+Returns formatted information including signature, documentation, and location."
+  (if (not symbol)
+      (error "symbol parameter is required")
+    (claude-code-ide-mcp-server-with-session-context nil
+      (condition-case err
+          (let* ((sym (if (stringp symbol) (intern symbol) symbol))
+                 (func (symbol-function sym)))
+            (if (not (fboundp sym))
+                (format "Symbol '%s' is not defined as a function" symbol)
+              (let* ((doc (documentation sym))
+                     (doc-truncated (if doc
+                                        (if (> (length doc) 500)
+                                            (concat (substring doc 0 497) "...")
+                                          doc)
+                                      "No documentation available"))
+                     (args (help-function-arglist sym))
+                     (args-str (if args
+                                   (format "%s" args)
+                                 "()"))
+                     ;; Determine function type
+                     (func-type (cond
+                                 ((subrp func) "built-in")
+                                 ((byte-code-function-p func) "byte-compiled")
+                                 ((commandp sym) "interactive")
+                                 (t "function")))
+                     ;; Try to find definition location
+                     (location (condition-case nil
+                                   (let ((find-result (find-function-noselect sym)))
+                                     (when (and find-result (consp find-result))
+                                       (let ((buf (car find-result))
+                                             (pos (cdr find-result)))
+                                         (with-current-buffer buf
+                                           (save-excursion
+                                             (goto-char pos)
+                                             (format "%s:%d"
+                                                     (buffer-file-name buf)
+                                                     (line-number-at-pos)))))))
+                                 (error nil))))
+                (format "Function: %s\nSignature: (%s %s)\nType: %s\n%s\nDocumentation:\n%s"
+                        symbol
+                        symbol
+                        args-str
+                        func-type
+                        (if location (format "Location: %s" location) "Location: <built-in or unknown>")
+                        doc-truncated))))
+        (error
+         (format "Error describing function '%s': %s"
+                 symbol (error-message-string err)))))))
+
+(defun claude-code-ide-mcp-describe-variable (symbol)
+  "Describe the variable SYMBOL.
+Returns formatted information including current value, documentation, and location."
+  (if (not symbol)
+      (error "symbol parameter is required")
+    (claude-code-ide-mcp-server-with-session-context nil
+      (condition-case err
+          (let* ((sym (if (stringp symbol) (intern symbol) symbol)))
+            (if (not (boundp sym))
+                (format "Symbol '%s' is not defined as a variable" symbol)
+              (let* (;; Get current value and format it
+                     (value (symbol-value sym))
+                     (value-str (condition-case nil
+                                    (let ((printed (prin1-to-string value)))
+                                      (if (> (length printed) 200)
+                                          (concat (substring printed 0 197) "...")
+                                        printed))
+                                  (error "<value cannot be printed>")))
+                     ;; Get documentation
+                     (doc (documentation-property sym 'variable-documentation))
+                     (doc-truncated (if doc
+                                        (if (> (length doc) 500)
+                                            (concat (substring doc 0 497) "...")
+                                          doc)
+                                      "No documentation available"))
+                     ;; Check if customizable
+                     (customizable (custom-variable-p sym))
+                     ;; Check if buffer-local
+                     (buffer-local (local-variable-p sym))
+                     ;; Try to find definition location
+                     (location (condition-case nil
+                                   (let ((find-result (find-variable-noselect sym)))
+                                     (when (and find-result (consp find-result))
+                                       (let ((buf (car find-result))
+                                             (pos (cdr find-result)))
+                                         (with-current-buffer buf
+                                           (save-excursion
+                                             (goto-char pos)
+                                             (format "%s:%d"
+                                                     (buffer-file-name buf)
+                                                     (line-number-at-pos)))))))
+                                 (error nil)))
+                     ;; Get variable type
+                     (var-type (type-of value))
+                     ;; Build properties list
+                     (properties (delq nil
+                                       (list
+                                        (when customizable "customizable")
+                                        (when buffer-local "buffer-local"))))
+                     (properties-str (if properties
+                                         (format " [%s]" (mapconcat #'identity properties ", "))
+                                       "")))
+                (format "Variable: %s%s\nValue: %s\nType: %s\n%s\nDocumentation:\n%s"
+                        symbol
+                        properties-str
+                        value-str
+                        var-type
+                        (if location (format "Location: %s" location) "Location: <built-in or unknown>")
+                        doc-truncated))))
+        (error
+         (format "Error describing variable '%s': %s"
+                 symbol (error-message-string err)))))))
+
 ;;; Tool Configuration
 
 ;;; Tool Registration
@@ -411,7 +525,24 @@ If INCLUDE_CHILDREN is non-nil, include child nodes."
            (:name "include_children"
                   :type boolean
                   :description "Include child nodes"
-                  :optional t))))
+                  :optional t)))
+
+  ;; Register describe tools
+  (claude-code-ide-make-tool
+   :function #'claude-code-ide-mcp-describe-function
+   :name "claude-code-ide-mcp-describe-function"
+   :description "Get detailed information about an Emacs Lisp function including its signature, documentation, definition location, and type. Useful for understanding how functions work and where they are defined"
+   :args '((:name "symbol"
+                  :type string
+                  :description "The function name to describe")))
+
+  (claude-code-ide-make-tool
+   :function #'claude-code-ide-mcp-describe-variable
+   :name "claude-code-ide-mcp-describe-variable"
+   :description "Get detailed information about an Emacs Lisp variable including its current value, type, documentation, definition location, and properties (customizable, buffer-local, etc.)"
+   :args '((:name "symbol"
+                  :type string
+                  :description "The variable name to describe"))))
 
 (provide 'claude-code-ide-emacs-tools)
 ;;; claude-code-ide-emacs-tools.el ends here
