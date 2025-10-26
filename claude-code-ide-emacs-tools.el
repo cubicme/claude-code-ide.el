@@ -573,7 +573,7 @@ Returns a list of matching symbols with their types (function, variable, customi
   (claude-code-ide-make-tool
    :function #'claude-code-ide-mcp-describe-function
    :name "claude-code-ide-mcp-describe-function"
-   :description "Get detailed information about an Emacs Lisp function including its signature, documentation, definition location, and type. Useful for understanding how functions work and where they are defined"
+   :description "Get detailed information about an Emacs Lisp function from the live Emacs session. Shows signature, documentation, definition location, and type. Use this when user asks about Emacs functions, configuration hooks, mode functions, or how something works in their Emacs setup"
    :args '((:name "symbol"
                   :type string
                   :description "The function name to describe")))
@@ -581,7 +581,7 @@ Returns a list of matching symbols with their types (function, variable, customi
   (claude-code-ide-make-tool
    :function #'claude-code-ide-mcp-describe-variable
    :name "claude-code-ide-mcp-describe-variable"
-   :description "Get detailed information about an Emacs Lisp variable including its current value, type, documentation, definition location, and properties (customizable, buffer-local, etc.)"
+   :description "Get detailed information about an Emacs Lisp variable from the live Emacs session. Shows current value, type, documentation, location, and properties. Use this when user asks about Emacs configuration variables, settings, customizations, or current state of their setup"
    :args '((:name "symbol"
                   :type string
                   :description "The variable name to describe")))
@@ -590,7 +590,7 @@ Returns a list of matching symbols with their types (function, variable, customi
   (claude-code-ide-make-tool
    :function #'claude-code-ide-mcp-search-symbols
    :name "claude-code-ide-mcp-search-symbols"
-   :description "Search for Emacs Lisp symbols (functions, variables, customizations) by glob pattern. Returns a list of matching symbols with their types. Use wildcards like 'magit-*blame*' or 'doom-*theme'. Useful for discovering available symbols when you know part of the name"
+   :description "Search for Emacs Lisp symbols (functions, variables, customizations) by glob pattern in the live Emacs session. Returns matching symbols with their types. Use this when user wants to discover available options, explore packages (e.g., 'magit-*', 'doom-*'), find customizations, or doesn't know exact symbol names. Especially useful for finding what can be customized in a package"
    :args '((:name "pattern"
                   :type string
                   :description "Glob pattern to match symbol names (e.g., 'magit-*', '*-mode', 'doom-*theme')"))))
