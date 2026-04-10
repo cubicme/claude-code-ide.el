@@ -34,6 +34,22 @@
 (require 'project)
 (require 'cl-lib)
 (require 'imenu)
+(require 'apropos)
+
+;; Add mcp-tools.d to load-path for modular tools
+(eval-and-compile
+  (let ((tools-dir (expand-file-name
+                    "mcp-tools.d"
+                    (file-name-directory
+                     (or load-file-name
+                         buffer-file-name
+                         default-directory)))))
+    (add-to-list 'load-path tools-dir)))
+
+(require 'claude-code-ide-tool-buffer-management)
+(require 'claude-code-ide-tool-eval)
+(require 'claude-code-ide-tool-xref)
+(require 'claude-code-ide-tool-magit)
 
 ;; Tree-sitter declarations
 (declare-function treesit-node-at "treesit" (pos &optional parser-or-lang named))
@@ -216,7 +232,7 @@ MAX-DEPTH is the maximum depth to traverse."
            (child-count (treesit-node-child-count node)))
       ;; Add children
       (dotimes (i child-count)
-        (when-let ((child (treesit-node-child node i)))
+        (when-let* ((child (treesit-node-child node i)))
           (setq result (concat result
                                (claude-code-ide-mcp-treesit--format-tree
                                 child (1+ level) max-depth)))))
@@ -593,7 +609,37 @@ Returns a list of matching symbols with their types (function, variable, customi
    :description "Search for Emacs Lisp symbols (functions, variables, customizations) by glob pattern in the live Emacs session. Returns matching symbols with their types. Use this when user wants to discover available options, explore packages (e.g., 'magit-*', 'doom-*'), find customizations, or doesn't know exact symbol names. Especially useful for finding what can be customized in a package"
    :args '((:name "pattern"
                   :type string
-                  :description "Glob pattern to match symbol names (e.g., 'magit-*', '*-mode', 'doom-*theme')"))))
+                  :description "Glob pattern to match symbol names (e.g., 'magit-*', '*-mode', 'doom-*theme')")))
+
+  ;; Register buffer management tools
+  (claude-code-ide-tool-buffer-management-setup)
+
+  ;; Register eval tool (OPTIONAL - disabled by default for security)
+  ;; Enable by setting: (setq claude-code-ide-eval-enabled t)
+  ;; Or interactively: M-x claude-code-ide-eval-toggle
+  (claude-code-ide-tool-eval-setup)
+
+  ;; Register LSP-aware xref tool
+  (claude-code-ide-tool-xref-setup)
+
+  ;; Register magit refresh tool
+  (claude-code-ide-tool-magit-setup))
+
+;;;###autoload
+(defun claude-code-ide-emacs-tools-restart ()
+  "Restart the MCP tools server to pick up changes.
+This is useful during development when tools are added or modified."
+  (interactive)
+  (require 'claude-code-ide-mcp-server)
+  ;; Stop the server if running
+  (when (and (boundp 'claude-code-ide-mcp-server--server)
+             claude-code-ide-mcp-server--server)
+    (claude-code-ide-mcp-server--stop-server)
+    (message "MCP server stopped"))
+  ;; Just re-setup tools (file is already loaded)
+  ;; If you need to reload from disk, use M-x load-file manually
+  (claude-code-ide-emacs-tools-setup)
+  (message "MCP tools server restarted"))
 
 (provide 'claude-code-ide-emacs-tools)
 ;;; claude-code-ide-emacs-tools.el ends here

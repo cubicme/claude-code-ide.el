@@ -102,7 +102,7 @@ Returns the window if found, nil otherwise."
 If SESSION is provided, use it instead of looking up the current session."
   (if session
       (claude-code-ide-mcp-session-active-diffs session)
-    (if-let ((current-session (claude-code-ide-mcp--get-current-session)))
+    (if-let* ((current-session (claude-code-ide-mcp--get-current-session)))
         (claude-code-ide-mcp-session-active-diffs current-session)
       ;; No session found - return nil
       nil)))
@@ -173,7 +173,7 @@ STARTUP-HOOK-FN is the hook function to remove after use."
     ;; Store the control buffer in our diff-info
     (let ((active-diffs (claude-code-ide-mcp--get-active-diffs session))
           (control-buffer ediff-control-buffer))
-      (when-let ((diff-info (gethash tab-name active-diffs)))
+      (when-let* ((diff-info (gethash tab-name active-diffs)))
         (setf (alist-get 'control-buffer diff-info) control-buffer)
         (puthash tab-name diff-info active-diffs)))
 
@@ -290,6 +290,77 @@ ARGUMENTS should contain:
        (signal 'mcp-error (list (format "Failed to open file: %s"
                                         (error-message-string err))))))))
 
+(defun claude-code-ide-mcp-handle-goto-location (arguments)
+  "Jump to a specific line and column in a file.
+ARGUMENTS should contain:
+- `file_path': Absolute path to the file (required)
+- `line': Line number (1-based, required)
+- `column': Column number (0-based, optional)
+- `highlight': Whether to temporarily highlight the line (optional, default nil)"
+  (let ((file-path (alist-get 'file_path arguments))
+        (line (alist-get 'line arguments))
+        (column (alist-get 'column arguments))
+        (highlight (alist-get 'highlight arguments)))
+    (unless file-path
+      (signal 'mcp-error '("Missing required parameter: file_path")))
+    (unless line
+      (signal 'mcp-error '("Missing required parameter: line")))
+    (condition-case err
+        (progn
+          ;; Open the file
+          (find-file (expand-file-name file-path))
+          ;; Set up buffer cache hooks for the newly opened file
+          (with-current-buffer (current-buffer)
+            (claude-code-ide-mcp--setup-buffer-cache-hooks))
+          ;; Go to the specified line
+          (goto-char (point-min))
+          (forward-line (1- line))
+          ;; Go to column if specified
+          (when column
+            (move-to-column column))
+          ;; Recenter to make sure the location is visible
+          (recenter)
+          ;; Highlight if requested
+          (when highlight
+            (let ((overlay (make-overlay (line-beginning-position) (line-end-position))))
+              (overlay-put overlay 'face 'highlight)
+              (run-with-timer 0.5 nil (lambda () (delete-overlay overlay)))))
+          ;; Return success
+          (list `((type . "text")
+                  (text . ,(format "Jumped to %s:%d%s"
+                                   file-path
+                                   line
+                                   (if column (format ":%d" column) ""))))))
+      (error
+       (signal 'mcp-error (list (format "Failed to goto location: %s"
+                                        (error-message-string err))))))))
+
+(defun claude-code-ide-mcp-handle-reload-buffer (arguments)
+  "Reload a buffer from disk, syncing with external file modifications.
+ARGUMENTS should contain:
+- `file_path': Absolute path to the file to reload (required)"
+  (let ((file-path (alist-get 'file_path arguments)))
+    (unless file-path
+      (signal 'mcp-error '("Missing required parameter: file_path")))
+    (condition-case err
+        (let* ((expanded-path (expand-file-name file-path))
+               (buffer (find-buffer-visiting expanded-path)))
+          (if buffer
+              (progn
+                (with-current-buffer buffer
+                  ;; Revert buffer from disk without confirmation
+                  ;; Args: ignore-auto noconfirm preserve-modes
+                  (revert-buffer t t t))
+                (list `((type . "text")
+                        (text . ,(format "Buffer reloaded from disk: %s" file-path)))))
+            ;; Buffer not currently open - that's fine, just report it
+            (list `((type . "text")
+                    (text . ,(format "Buffer not open (no reload needed): %s" file-path))))))
+      (error
+       (signal 'mcp-error (list (format "Failed to reload buffer: %s"
+                                        (error-message-string err))))))))
+
+
 (defun claude-code-ide-mcp-handle-get-diagnostics (arguments &optional session)
   "Get diagnostics (errors/warnings) for the current workspace.
 ARGUMENTS may contain an optional `uri' parameter.
@@ -329,7 +400,7 @@ ARGUMENTS should contain `path' or `tab_name' of the file to close."
         (if found-diff-info
             (progn
               ;; Check if ediff is still active and quit it using stored control buffer
-              (when-let ((control-buf (alist-get 'control-buffer found-diff-info)))
+              (when-let* ((control-buf (alist-get 'control-buffer found-diff-info)))
                 (when (buffer-live-p control-buf)
                   ;; Set a flag in diff-info to indicate this quit is from Claude
                   (setf (alist-get 'quit-from-claude found-diff-info) t)
@@ -407,7 +478,7 @@ ARGUMENTS should contain:
     ;; Get the active diffs for this specific session
     (let ((active-diffs (claude-code-ide-mcp--get-active-diffs session)))
       ;; Check if there's already a diff with this tab_name
-      (when-let ((existing-diff (gethash tab-name active-diffs)))
+      (when-let* ((existing-diff (gethash tab-name active-diffs)))
         ;; Clean up existing diff
         (claude-code-ide-mcp--cleanup-diff tab-name session)))
 
@@ -566,7 +637,7 @@ session."
   "Clean up diff session for TAB-NAME.
 SESSION is the MCP session to use - if not provided, tries to determine it."
   (let ((active-diffs (claude-code-ide-mcp--get-active-diffs session)))
-    (when-let ((diff-info (gethash tab-name active-diffs)))
+    (when-let* ((diff-info (gethash tab-name active-diffs)))
       ;; If session wasn't provided, try to get it from diff-info
       (unless session
         (setq session (alist-get 'session diff-info)))
@@ -621,8 +692,8 @@ SESSION is the MCP session to use - if not provided, tries to determine it."
                      (setq closed-count (1+ closed-count)))
                    session-diffs))
       ;; Fallback to project directory if no current session
-      (when-let ((project-dir (claude-code-ide-mcp--get-buffer-project)))
-        (when-let ((session (claude-code-ide-mcp--get-session-for-project
+      (when-let* ((project-dir (claude-code-ide-mcp--get-buffer-project)))
+        (when-let* ((session (claude-code-ide-mcp--get-session-for-project
                              project-dir)))
           (let ((session-diffs (claude-code-ide-mcp-session-active-diffs session)))
             (maphash (lambda (tab-name _diff-info)
@@ -652,6 +723,8 @@ ARGUMENTS should contain:
 (defun claude-code-ide-mcp--build-tool-list ()
   "Build the tool list, conditionally including ediff tools."
   `(("openFile" . claude-code-ide-mcp-handle-open-file)
+    ("gotoLocation" . claude-code-ide-mcp-handle-goto-location)
+    ("reloadBuffer" . claude-code-ide-mcp-handle-reload-buffer)
     ("getDiagnostics" . claude-code-ide-mcp-handle-get-diagnostics)
     ("close_tab" . claude-code-ide-mcp-handle-close-tab)
     ,@(when (bound-and-true-p claude-code-ide-use-ide-diff)
@@ -676,6 +749,20 @@ ARGUMENTS should contain:
                                   (endText . ((type . "string")
                                               (description . "End text pattern for selection")))))
                    (required . ["filePath"])))
+    ("gotoLocation" . ((type . "object")
+                       (properties . ((file_path . ((type . "string")
+                                                    (description . "Absolute path to the file")))
+                                      (line . ((type . "integer")
+                                               (description . "Line number (1-based)")))
+                                      (column . ((type . "integer")
+                                                 (description . "Column number (0-based, optional)")))
+                                      (highlight . ((type . "boolean")
+                                                    (description . "Whether to temporarily highlight the line (optional)")))))
+                       (required . ["file_path" "line"])))
+    ("reloadBuffer" . ((type . "object")
+                       (properties . ((file_path . ((type . "string")
+                                                    (description . "Absolute path to the file to reload")))))
+                       (required . ["file_path"])))
     ("getDiagnostics" . ((type . "object")
                          (properties . ((uri . ((type . "string")
                                                 (description . "Optional file URI to get diagnostics for. If not provided, gets diagnostics for all files.")))))
@@ -710,6 +797,8 @@ ARGUMENTS should contain:
 (defun claude-code-ide-mcp--build-tool-descriptions ()
   "Build the tool descriptions, conditionally including ediff tools."
   `(("openFile" . "Open a file in the editor and optionally select a range of text")
+    ("gotoLocation" . "Jump to a specific line and column in a file, optionally highlighting the location")
+    ("reloadBuffer" . "Reload a buffer from disk to sync with external file modifications")
     ("getDiagnostics" . "Get language diagnostics from Emacs")
     ("close_tab" . "Close a tab/buffer")
     ,@(when (bound-and-true-p claude-code-ide-use-ide-diff)
