@@ -43,6 +43,7 @@
                     (file-name-directory
                      (or load-file-name
                          buffer-file-name
+                         (locate-library "claude-code-ide-emacs-tools")
                          default-directory)))))
     (add-to-list 'load-path tools-dir)))
 
